@@ -511,11 +511,7 @@ async def main():
     )
 
     # Init Arguments
-    auto_dealership_phone_number = "+1 (650) 879-8564"
     air_conditioning_phone_number = "+14153580761"
-    initial_prompt = """I'm interested in leasing a used BMW. I'd like to know what models you have available 
-    and what the price ranges are. I'm particularly interested in models from the last 5 years."""
-
     initial_air_conditioning_prompt = """Hi, my AC unit isn't cooling properly - it's blowing warm air and making 
     unusual noises. The unit is about 5 years old. I'd like to schedule a service appointment to have someone 
     take a look at it. What are your availability and rates for AC repairs?"""
