@@ -6,10 +6,6 @@ import re
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
-import aiofiles
-import aiohttp
-import requests
-
 from interface import IGraphConstructor
 from modules.graph_visualizer.dash_viz import DynamicGraphVisualizer
 from modules.graph_visualizer.interface import GraphVisualizerInterface
@@ -17,6 +13,8 @@ from modules.llm_client.claude import ClaudeClient
 from modules.llm_client.interface import LLMClientInterface
 from modules.logger.factory import LoggerFactory
 from modules.logger.interface import LoggerInterface
+from modules.phone.hamming import HammingClient
+from modules.phone.interface import PhoneInterface
 from modules.transcriber.assembly_ai import AssemblyAITranscriber
 from modules.transcriber.interface import TranscriberInterface
 from utils.settings import Settings
@@ -47,101 +45,33 @@ class GraphConstructor(IGraphConstructor):
     def __init__(
         self,
         llm_client: LLMClientInterface,
-        visualizer: GraphVisualizerInterface,
-        transcriber: TranscriberInterface,
         logger: LoggerInterface,
+        phone_client: PhoneInterface,
+        transcriber: TranscriberInterface,
+        visualizer: GraphVisualizerInterface,
         settings: Optional[Settings] = None,
     ) -> None:
         """Initialize the GraphConstructor with required components.
 
         Args:
-            llm_client: Client for generating LLM responses
-            graph_viz: Visualizer for rendering conversation graphs
-            transcriber: Service for transcribing audio to text
-            logger: Logger for tracking execution
+            llm_client (LLMClientInterface): The LLM client for generating responses
+            phone_client (PhoneInterface): The phone client for making calls
+            visualizer (GraphVisualizerInterface): The visualizer for rendering graphs
+            transcriber (TranscriberInterface): The transcriber for processing audio
+            logger (LoggerInterface): The logger for tracking execution
+            settings (Optional[Settings]): Optional settings configuration
         """
-        super().__init__(llm_client, visualizer, transcriber, logger, settings)
+        super().__init__(
+            llm_client=llm_client,
+            logger=logger,
+            phone_client=phone_client,
+            transcriber=transcriber,
+            visualizer=visualizer,
+            settings=settings,
+        )
         self.nodes: List[Dict[str, Any]] = []
         self.depth_patterns: Dict[int, List[str]] = {}
         self.logger.info("INFO: GraphConstructor initialized")
-
-    async def call(self) -> int:
-        """Makes a call to the Hamming API Endpoint.
-
-        Returns:
-            The call ID from the Hamming API response
-        """
-        headers = {
-            "Authorization": f"Bearer {self.settings.hammingai_api_token}",
-            "Content-Type": "application/json",
-        }
-
-        payload = {
-            "phone_number": self.phone_number,
-            "prompt": self.initial_prompt,
-            "webhook_url": "https://your-webhook-url.com/callback",
-        }
-
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                self.settings.api_endpoint, json=payload, headers=headers
-            ) as response:
-                self.logger.info(
-                    f"INFO: Calling phone number {self.phone_number} via API call to {self.settings.api_endpoint}"
-                )
-                response_data = await response.json()
-                return response_data["id"]
-
-    async def poll_for_response(
-        self, call_id: int, time_in_between_polls: int = 200, max_time: int = 480
-    ) -> str:
-        """Poll the API for a response recording.
-
-        Args:
-            call_id: ID of the call to poll for from Hamming AI
-            time_in_between_polls: Time to wait between polls in seconds
-            max_time: Maximum time to poll in seconds before raising a TimeoutError
-
-        Returns:
-            Path to the downloaded audio file
-
-        Raises:
-            TimeoutError: If max_time is exceeded
-            ValueError: If server returns an error
-        """
-        headers = {
-            "Authorization": f"Bearer {self.settings.hammingai_api_token}",
-            "Content-Type": "application/json",
-        }
-
-        recording_url = f"https://app.hamming.ai/api/media/exercise?id={call_id}"
-        self.logger.info(f"INFO: Starting to poll for response with call ID: {call_id}")
-
-        start_time = asyncio.get_event_loop().time()
-        while True:
-            recording_response = requests.get(recording_url, headers=headers)
-
-            if recording_response.status_code == 200:
-                audio_content = recording_response.content
-
-                filepath = f"transcripts/{call_id}.mp3"
-                async with aiofiles.open(filepath, "wb") as f:
-                    await f.write(audio_content)
-
-                self.logger.info(f"INFO: Successfully downloaded audio to {filepath}")
-                return filepath
-
-            elif recording_response.status_code >= 500:
-                raise ValueError(
-                    f"Server error {recording_response.status_code}, retrying..."
-                )
-
-            if asyncio.get_event_loop().time() - start_time > max_time:
-                raise TimeoutError(
-                    f"Recording not available after {max_time} minutes of polling"
-                )
-
-            await asyncio.sleep(time_in_between_polls)
 
     async def generate_test_scenarios(
         self, node: Dict[str, Any], max_scenarios: int = 3
@@ -402,7 +332,9 @@ class GraphConstructor(IGraphConstructor):
         self.prompt = scenario["prompt"]
 
         # Make new call
-        call_id = await self.call()
+        call_id = await self.phone_client.make_call(
+            phone_number=self.phone_number, prompt=self.prompt
+        )
         audio_filepath = await self.poll_for_response(call_id)
 
         new_transcript = await self.transcriber.transcribe(audio_filepath)
@@ -548,8 +480,10 @@ class GraphConstructor(IGraphConstructor):
         self.logger.info("START: Starting conversation graph exploration")
 
         # Make initial call
-        call_id = await self.call()
-        audio_filepath = await self.poll_for_response(call_id)
+        call_id = await self.phone_client.make_call(
+            phone_number=phone_number, prompt=initial_prompt
+        )
+        audio_filepath = await self.phone_client.poll_for_response(call_id)
         transcript = await self.transcriber.transcribe(audio_filepath)
 
         # Get initial graph
@@ -572,17 +506,21 @@ class GraphConstructor(IGraphConstructor):
 async def main():
     # Initialize components
     settings = Settings()
+    logger = LoggerFactory()  # Move logger initialization to top
+    hamming_client = HammingClient(
+        api_token=settings.hammingai_api_token, api_endpoint=settings.api_endpoint
+    )
     llm_client = ClaudeClient(api_token=settings.claude_api_token)
-    logger = LoggerFactory()
     transcriber = AssemblyAITranscriber(api_token=settings.assemblyai_api_token)
     visualizer = DynamicGraphVisualizer()
 
     # Initialize graph constructor with components
     gc = GraphConstructor(
         llm_client=llm_client,
-        logger=logger,
-        transcriber=transcriber,
+        phone_client=hamming_client,
         visualizer=visualizer,
+        transcriber=transcriber,
+        logger=logger,
         settings=settings,
     )
 

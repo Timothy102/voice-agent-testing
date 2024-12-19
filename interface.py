@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional, Set
 from modules.graph_visualizer.interface import GraphVisualizerInterface
 from modules.llm_client.interface import LLMClientInterface
 from modules.logger.factory import LoggerFactory
+from modules.phone.interface import PhoneInterface
 from modules.transcriber.interface import TranscriberInterface
 from utils.settings import Settings
 
@@ -13,9 +14,10 @@ class IGraphConstructor(ABC):
     def __init__(
         self,
         llm_client: LLMClientInterface,
-        visualizer: GraphVisualizerInterface,
-        transcriber: TranscriberInterface,
         logger: LoggerFactory,
+        phone_client: PhoneInterface,
+        transcriber: TranscriberInterface,
+        visualizer: GraphVisualizerInterface,
         settings: Optional[Settings] = None,
     ) -> None:
         """
@@ -28,10 +30,11 @@ class IGraphConstructor(ABC):
             logger (LoggerFactory): The logger for logging activities.
         """
         self.llm_client = llm_client
-        self.visualizer = visualizer
-        self.transcriber = transcriber
         self.logger = logger
+        self.phone_client = phone_client
         self.settings = settings
+        self.transcriber = transcriber
+        self.visualizer = visualizer
 
     @abstractmethod
     async def generate_test_scenarios(
@@ -46,33 +49,6 @@ class IGraphConstructor(ABC):
 
         Returns:
             List[Dict[str, str]]: A list of generated test scenarios.
-        """
-        pass
-
-    @abstractmethod
-    async def call(self) -> int:
-        """
-        Make a call and return its identifier.
-
-        Returns:
-            int: The identifier of the call.
-        """
-        pass
-
-    @abstractmethod
-    async def poll_for_response(
-        self, call_id: int, time_in_between_polls: int = 200, max_time: int = 480
-    ) -> Path:
-        """
-        Poll for a response from a call until a response is received or a timeout occurs.
-
-        Args:
-            call_id (int): The identifier of the call.
-            time_in_between_polls (int): Time in milliseconds between polls. Defaults to 200.
-            max_time (int): Maximum time in seconds to wait for a response. Defaults to 480.
-
-        Returns:
-            Path: The path to the response file.
         """
         pass
 
