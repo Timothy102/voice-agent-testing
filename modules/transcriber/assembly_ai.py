@@ -8,11 +8,41 @@ from modules.transcriber.interface import TranscriberInterface
 
 
 class AssemblyAITranscriber(TranscriberInterface):
+    """Transcriber implementation using the AssemblyAI API for speech-to-text conversion.
+
+    This class handles uploading audio files, requesting transcriptions, and polling for results
+    from the AssemblyAI service.
+
+    Args:
+        api_token (str): Authentication token for the AssemblyAI API
+    """
+
     def __init__(self, api_token: str):
+        """Initialize the transcriber with API credentials.
+
+        Args:
+            api_token (str): Authentication token for the AssemblyAI API
+        """
         super().__init__(api_token)
         self.base_url = "https://api.assemblyai.com/v2"
 
     async def transcribe(self, filepath: Path) -> str:
+        """Transcribe an audio file to text using AssemblyAI.
+
+        This method handles the full transcription workflow:
+        1. Upload the audio file
+        2. Request transcription
+        3. Poll for results
+
+        Args:
+            filepath (Path): Path to the audio file to transcribe
+
+        Returns:
+            str: The transcribed text
+
+        Raises:
+            Exception: If any step of the transcription process fails
+        """
         headers = {"authorization": self.api_token, "content-type": "application/json"}
 
         async with aiofiles.open(filepath, "rb") as file:
@@ -71,6 +101,10 @@ if __name__ == "__main__":
     from dotenv import load_dotenv
 
     async def test_transcription():
+        """Test function to demonstrate transcription functionality.
+
+        Loads API credentials from environment and transcribes a test audio file.
+        """
         # Load environment variables
         load_dotenv()
         api_token = os.getenv("ASSEMBLYAI_API_TOKEN")

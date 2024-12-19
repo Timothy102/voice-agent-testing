@@ -189,7 +189,7 @@ class GraphConstructor(IGraphConstructor):
             response_data = await self.llm_client.generate(
                 user_prompt=user_prompt, system_prompt=system_prompt
             )
-            print("response_data", response_data)
+
             # Log raw response
             self.logger.debug(f"DEBUG: Claude response: {response_data}")
 
@@ -368,7 +368,7 @@ class GraphConstructor(IGraphConstructor):
         # Make new call
         call_id = await self.call()
         audio_filepath = await self.poll_for_response(call_id)
-        print("audio_filepath", audio_filepath)
+
         new_transcript = await self.transcriber.transcribe(audio_filepath)
         self.logger.info(f"Transcript: {new_transcript}")
 
@@ -521,11 +521,17 @@ async def main():
 
     # Init Arguments
     auto_dealership_phone_number = "+1 (650) 879-8564"
+    air_conditioning_phone_number = "+14153580761"
     initial_prompt = """I'm interested in leasing a used BMW. I'd like to know what models you have available 
     and what the price ranges are. I'm particularly interested in models from the last 5 years."""
 
+    initial_air_conditioning_prompt = """Hi, my AC unit isn't cooling properly - it's blowing warm air and making 
+    unusual noises. The unit is about 5 years old. I'd like to schedule a service appointment to have someone 
+    take a look at it. What are your availability and rates for AC repairs?"""
+
     await gc.run(
-        phone_number=auto_dealership_phone_number, initial_prompt=initial_prompt
+        phone_number=air_conditioning_phone_number,
+        initial_prompt=initial_air_conditioning_prompt,
     )
 
 
