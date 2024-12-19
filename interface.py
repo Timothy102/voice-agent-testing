@@ -126,7 +126,7 @@ class IGraphConstructor(ABC):
         pass
 
     @abstractmethod
-    async def run(self, phone_number: str, initial_prompt: str) -> None:
+    async def run(self, phone_number: str, initial_prompt: str) -> List[Dict[str, Any]]:
         """
         Run the graph construction process with a given phone number and initial prompt.
 

@@ -522,7 +522,7 @@ class GraphConstructor(IGraphConstructor):
         if edge_tasks:
             await asyncio.gather(*edge_tasks)
 
-    async def run(self, phone_number: str, initial_prompt: str) -> None:
+    async def run(self, phone_number: str, initial_prompt: str) -> List[Dict[str, Any]]:
         """Run the automated testing process for exploring conversation paths.
 
         This method initiates the conversation graph exploration by:
@@ -566,6 +566,7 @@ class GraphConstructor(IGraphConstructor):
         await self.dfs(root_node)
 
         self.logger.info(f"Final graph structure: {json.dumps(self.nodes, indent=2)}")
+        return self.nodes
 
 
 async def main():
@@ -591,11 +592,12 @@ async def main():
     unusual noises. The unit is about 5 years old. I'd like to schedule a service appointment to have someone 
     take a look at it. What are your availability and rates for AC repairs?"""
 
-    await gc.run(
+    return await gc.run(
         phone_number=air_conditioning_phone_number,
         initial_prompt=initial_air_conditioning_prompt,
     )
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    result = asyncio.run(main())
+    print(json.dumps(result, indent=2))
