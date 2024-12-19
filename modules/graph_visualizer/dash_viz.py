@@ -1,18 +1,29 @@
 import logging
-import os
 import queue
 import threading
 from typing import Any, Dict, List
 
 import dash_cytoscape as cyto
 from dash import Dash, ctx, dcc, html
-from dash.dependencies import Input, Output, State
+from dash.dependencies import Input, Output
 from dash.exceptions import PreventUpdate
 
 from modules.graph_visualizer.interface import GraphVisualizerInterface
 
 
 class DynamicGraphVisualizer(GraphVisualizerInterface):
+    """A dynamic graph visualization class using Dash and Cytoscape.
+
+    This class implements a real-time graph visualization interface for displaying
+    conversation flows. It uses Dash for the web application framework and Cytoscape
+    for graph rendering.
+
+    Args:
+        port (int, optional): Port number for the Dash server. Defaults to 8050.
+        host (str, optional): Host address for the Dash server. Defaults to "127.0.0.1".
+        title (str, optional): Title of the visualization. Defaults to "Hamming AI - Real-Time Conversation Flow".
+    """
+
     def __init__(
         self,
         port=8050,
@@ -144,7 +155,17 @@ class DynamicGraphVisualizer(GraphVisualizerInterface):
         self.dash_thread.start()
 
     def update_elements(self, n_intervals):
-        """Callback to update graph elements"""
+        """Callback to update graph elements when new data is available.
+
+        Args:
+            n_intervals (int): Number of intervals passed (unused but required by Dash)
+
+        Returns:
+            List[Dict[str, Any]]: Updated list of graph elements
+
+        Raises:
+            PreventUpdate: If no new data is available in the queue
+        """
         try:
             latest_nodes = self.graph_queue.get_nowait()
             self.current_elements = self._convert_nodes_to_elements(latest_nodes)
@@ -153,11 +174,18 @@ class DynamicGraphVisualizer(GraphVisualizerInterface):
             raise PreventUpdate
 
     def update_layout(self, layout_name):
-        """Callback to update graph layout"""
+        """Callback to update the graph layout based on user selection.
+
+        Args:
+            layout_name (str): Name of the selected layout
+
+        Returns:
+            Dict[str, str]: Layout configuration dictionary
+        """
         return {"name": layout_name, "rankDir": "TB"}
 
     def _run_dash_server(self):
-        """Run the Dash app in a separate thread"""
+        """Run the Dash app in a separate thread with minimal logging."""
         log = logging.getLogger("werkzeug")
         log.setLevel(logging.ERROR)
 
@@ -174,7 +202,14 @@ class DynamicGraphVisualizer(GraphVisualizerInterface):
     def _convert_nodes_to_elements(
         self, nodes: List[Dict[str, Any]]
     ) -> List[Dict[str, Any]]:
-        """Convert nodes to Cytoscape elements with improved handling"""
+        """Convert node data to Cytoscape-compatible elements.
+
+        Args:
+            nodes (List[Dict[str, Any]]): List of node dictionaries containing conversation data
+
+        Returns:
+            List[Dict[str, Any]]: List of Cytoscape-compatible elements
+        """
         if not nodes:
             return []
 
@@ -218,7 +253,11 @@ class DynamicGraphVisualizer(GraphVisualizerInterface):
         return elements
 
     def update_graph(self, nodes: List[Dict[str, Any]]) -> None:
-        """Update the graph with new nodes"""
+        """Update the graph with new node data.
+
+        Args:
+            nodes (List[Dict[str, Any]]): List of node dictionaries containing updated conversation data
+        """
         if nodes:
             print(f"Updating graph with {len(nodes)} nodes")
             # Clear the queue before putting new nodes to prevent backlog
@@ -228,7 +267,3 @@ class DynamicGraphVisualizer(GraphVisualizerInterface):
                 except queue.Empty:
                     break
             self.graph_queue.put(nodes)
-
-    def start(self):
-        """Start method for compatibility"""
-        pass

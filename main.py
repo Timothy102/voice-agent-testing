@@ -67,6 +67,84 @@ class GraphConstructor(IGraphConstructor):
         self.depth_patterns: Dict[int, List[str]] = {}
         self.logger.info("INFO: GraphConstructor initialized")
 
+    async def call(self) -> int:
+        """Makes a call to the Hamming API Endpoint.
+
+        Returns:
+            The call ID from the Hamming API response
+        """
+        headers = {
+            "Authorization": f"Bearer {self.settings.hammingai_api_token}",
+            "Content-Type": "application/json",
+        }
+
+        payload = {
+            "phone_number": self.phone_number,
+            "prompt": self.initial_prompt,
+            "webhook_url": "https://your-webhook-url.com/callback",
+        }
+
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                self.settings.api_endpoint, json=payload, headers=headers
+            ) as response:
+                self.logger.info(
+                    f"INFO: Calling phone number {self.phone_number} via API call to {self.settings.api_endpoint}"
+                )
+                response_data = await response.json()
+                return response_data["id"]
+
+    async def poll_for_response(
+        self, call_id: int, time_in_between_polls: int = 200, max_time: int = 480
+    ) -> str:
+        """Poll the API for a response recording.
+
+        Args:
+            call_id: ID of the call to poll for from Hamming AI
+            time_in_between_polls: Time to wait between polls in seconds
+            max_time: Maximum time to poll in seconds before raising a TimeoutError
+
+        Returns:
+            Path to the downloaded audio file
+
+        Raises:
+            TimeoutError: If max_time is exceeded
+            ValueError: If server returns an error
+        """
+        headers = {
+            "Authorization": f"Bearer {self.settings.hammingai_api_token}",
+            "Content-Type": "application/json",
+        }
+
+        recording_url = f"https://app.hamming.ai/api/media/exercise?id={call_id}"
+        self.logger.info(f"INFO: Starting to poll for response with call ID: {call_id}")
+
+        start_time = asyncio.get_event_loop().time()
+        while True:
+            recording_response = requests.get(recording_url, headers=headers)
+
+            if recording_response.status_code == 200:
+                audio_content = recording_response.content
+
+                filepath = f"transcripts/{call_id}.mp3"
+                async with aiofiles.open(filepath, "wb") as f:
+                    await f.write(audio_content)
+
+                self.logger.info(f"INFO: Successfully downloaded audio to {filepath}")
+                return filepath
+
+            elif recording_response.status_code >= 500:
+                raise ValueError(
+                    f"Server error {recording_response.status_code}, retrying..."
+                )
+
+            if asyncio.get_event_loop().time() - start_time > max_time:
+                raise TimeoutError(
+                    f"Recording not available after {max_time} minutes of polling"
+                )
+
+            await asyncio.sleep(time_in_between_polls)
+
     async def generate_test_scenarios(
         self, node: Dict[str, Any], max_scenarios: int = 3
     ) -> List[Dict[str, str]]:
@@ -155,245 +233,121 @@ class GraphConstructor(IGraphConstructor):
                 self.logger.error("ERROR: No response received from Claude")
             return []
 
-    async def call(self) -> int:
-        """Makes a call to the Hamming API Endpoint.
-
-        Returns:
-            The call ID from the Hamming API response
-        """
-        headers = {
-            "Authorization": f"Bearer {self.settings.hammingai_api_token}",
-            "Content-Type": "application/json",
-        }
-
-        payload = {
-            "phone_number": self.phone_number,
-            "prompt": self.initial_prompt,
-            "webhook_url": "https://your-webhook-url.com/callback",
-        }
-
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                self.settings.api_endpoint, json=payload, headers=headers
-            ) as response:
-                self.logger.info(
-                    f"INFO: Calling phone number {self.phone_number} via API call to {self.settings.api_endpoint}"
-                )
-                response_data = await response.json()
-                return response_data["id"]
-
-    async def poll_for_response(
-        self, call_id: int, time_in_between_polls: int = 200, max_time: int = 480
-    ) -> str:
-        """Poll the API for a response recording.
-
-        Args:
-            call_id: ID of the call to poll for from Hamming AI
-            time_in_between_polls: Time to wait between polls in seconds
-            max_time: Maximum time to poll in seconds before raising a TimeoutError
-
-        Returns:
-            Path to the downloaded audio file
-
-        Raises:
-            TimeoutError: If max_time is exceeded
-            ValueError: If server returns an error
-        """
-        headers = {
-            "Authorization": f"Bearer {self.settings.hammingai_api_token}",
-            "Content-Type": "application/json",
-        }
-
-        recording_url = f"https://app.hamming.ai/api/media/exercise?id={call_id}"
-
-        self.logger.info(f"INFO: Starting to poll for response with call ID: {call_id}")
-
-        start_time = asyncio.get_event_loop().time()
-        while True:
-            recording_response = requests.get(recording_url, headers=headers)
-
-            if recording_response.status_code == 200:
-                audio_content = recording_response.content
-
-                filepath = f"transcripts/{call_id}.mp3"
-                async with aiofiles.open(filepath, "wb") as f:
-                    await f.write(audio_content)
-
-                self.logger.info(f"INFO: Successfully downloaded audio to {filepath}")
-                return filepath
-
-            elif recording_response.status_code >= 500:
-                raise ValueError(
-                    f"Server error {recording_response.status_code}, retrying..."
-                )
-
-            if asyncio.get_event_loop().time() - start_time > max_time:
-                raise TimeoutError(
-                    f"Recording not available after {max_time} minutes of polling"
-                )
-
-            await asyncio.sleep(time_in_between_polls)
-
     async def get_nodes_from_transcript(
-        self, transcript: str, current_depth: int = 0
+        self, transcript: str, current_depth: int = 0, max_retries: int = 3
     ) -> List[Dict[str, Any]]:
         """Convert a transcript into graph nodes with concise content."""
-        depth_context = ""
-        if self.depth_patterns:
-            depth_context = "Known decision points by depth:\n"
-            for depth, patterns in self.depth_patterns.items():
-                depth_context += f"Depth {depth}: {', '.join(patterns)}\n"
-
-        system_prompt = """You are an expert at converting customer service conversations into clear, concise decision flows.
-        Think like a minimalist flowchart designer - use the shortest possible phrases that capture the decision point.
-        Every node should be 1-4 words maximum."""
-
-        user_prompt = f"""Convert this conversation into a minimal decision flow with extremely concise nodes.
-
-        Key rules for node content:
-        1. Maximum 4 words per node
-        2. Use shortest possible phrases:
-        - "Member?" instead of "Are you an existing customer with us?"
-        - "Budget?" instead of "Please share your budget and preferences"
-        - "Schedule Visit?" instead of "Would you like to schedule an appointment?"
-        - "Transfer to Agent" instead of "Transfer customer to an agent who can help"
-        3. For questions, use format: "Topic?"
-        4. For actions, use imperative form: "Schedule Call", "Transfer"
-        5. If you see a question/action that matches these known patterns at depth {current_depth}, use the EXACT same content:
-        {depth_context}
-
-        Return your response as a SINGLE, COMPLETE JSON array.
-        The first node should always have content be "Start". ALWAYS.
-        The array must start with '[' and end with ']'.
-        No text before or after the JSON array.
-
-        Format each node as:
-        {{
-            "node_id": number,
-            "content": "very short phrase",
-            "speaker": "agent" or "system",
-            "depth": number,
-            "edges": [
-                {{
-                    "target_node_id": number,
-                    "label": "brief label"
-                }}
-            ]
-        }}
-
-        Transcript:
-        {transcript}"""
-
-        try:
-            # Get response from LLM
-            response = await self.llm_client.generate(
-                user_prompt=user_prompt, system_prompt=system_prompt
-            )
-
-            self.logger.debug(f"Raw LLM response: {response}")
-
-            # Parse response string to extract JSON
-            if isinstance(response, str):
-                # Clean the string and find the JSON array
-                response = response.strip()
-                start_idx = response.find("[")
-                end_idx = response.rfind("]")
-
-                if start_idx == -1 or end_idx == -1:
-                    raise ValueError("No valid JSON array found in response")
-
-                json_str = response[start_idx : end_idx + 1]
-                nodes = json.loads(json_str)
-            else:
-                # If response is already parsed JSON (dict or list)
-                nodes = response
-
-            # Validate and process nodes
-            if not isinstance(nodes, list):
-                raise ValueError(f"Expected list of nodes, got {type(nodes)}")
-
-            # Update depth patterns
-            for node in nodes:
-                depth = node.get("depth", 0)
-                if depth not in self.depth_patterns:
-                    self.depth_patterns[depth] = []
-                if node["content"] not in self.depth_patterns[depth]:
-                    self.depth_patterns[depth].append(node["content"])
-
-            return nodes
-
-        except json.JSONDecodeError as e:
-            self.logger.error(f"JSON parsing error: {str(e)}")
-            self.logger.debug(f"Failed to parse response: {response}")
-            raise
-        except Exception as e:
-            self.logger.error(f"Error processing transcript: {str(e)}")
-            raise
-
-    def _extract_nodes(self, response_text: str) -> List[Dict[str, Any]]:
-        """Extract and validate nodes from Claude's response.
-
-        Args:
-            response_text: Raw response text from Claude
-
-        Returns:
-            List of validated node dictionaries
-
-        Raises:
-            ValueError: If node validation fails
-        """
-        try:
-            # Forcing JSON structure extraction #
-            if "```json" in response_text:
-                json_content = response_text.split("```json")[1].split("```")[0].strip()
-            else:
-                start_idx = response_text.find("[")
-                end_idx = response_text.rfind("]")
-
-                if start_idx == -1 or end_idx == -1:
-                    self.logger.error("ERROR: No complete JSON array found in response")
-                    self.logger.debug(f"DEBUG: Response text: {response_text}")
-                    raise ValueError("No valid JSON array found in response")
-
-                json_content = response_text[start_idx : end_idx + 1]
-
-            # Clean up the JSON content
-            json_content = json_content.strip()
-
-            # Remove any trailing commas before closing brackets
-            json_content = re.sub(r",(\s*})", r"\1", json_content)
-            json_content = re.sub(r",(\s*])", r"\1", json_content)
-
-            # Parse the complete array
+        for attempt in range(max_retries):
             try:
-                nodes = json.loads(json_content)
-            except json.JSONDecodeError as e:
-                self.logger.error(f"ERROR: JSON decode error: {str(e)}")
-                self.logger.debug(f"DEBUG: Attempted to parse: {json_content}")
-                raise
+                depth_context = ""
+                if self.depth_patterns:
+                    depth_context = "Known decision points by depth:\n"
+                    for depth, patterns in self.depth_patterns.items():
+                        depth_context += f"Depth {depth}: {', '.join(patterns)}\n"
 
-            # Validate nodes
-            has_start = False
-            for node in nodes:
-                if node.get("content") == "Start":
-                    has_start = True
-                required_fields = ["node_id", "content", "speaker", "edges"]
-                missing_fields = [
-                    field for field in required_fields if field not in node
-                ]
-                if missing_fields:
-                    self.logger.warning(
-                        f"WARNING: Node {node.get('node_id', 'unknown')} missing fields: {missing_fields}"
+                system_prompt = """You are an expert at converting customer service conversations into clear, concise decision flows.
+                Think like a minimalist flowchart designer - use the shortest possible phrases that capture the decision point.
+                Every node should be 1-4 words maximum.
+                
+                You must return ONLY a valid JSON array, nothing else."""
+
+                user_prompt = f"""Convert this conversation into a minimal decision flow with extremely concise nodes.
+
+                Key rules for node content:
+                1. Maximum 4 words per node
+                2. Use shortest possible phrases:
+                - "Member?" instead of "Are you an existing customer with us?"
+                - "Budget?" instead of "Please share your budget and preferences"
+                - "Schedule Visit?" instead of "Would you like to schedule an appointment?"
+                - "Transfer to Agent" instead of "Transfer customer to an agent who can help"
+                3. For questions, use format: "Topic?"
+                4. For actions, use imperative form: "Schedule Call", "Transfer"
+                5. Never just use information like: "Provide Information", but always something more, like "Providing Model Information"  
+                5. If you see a question/action that matches these known patterns at depth {current_depth}, use the EXACT same content:
+                {depth_context}
+
+                The first node should always have content be "Start". ALWAYS.
+                Return ONLY a valid JSON array. No text before or after.
+
+                Format each node as:
+                {{
+                    "node_id": number,
+                    "content": "very short phrase",
+                    "speaker": "agent" or "system",
+                    "depth": number,
+                    "edges": [
+                        {{
+                            "target_node_id": number,
+                            "label": "brief label"
+                        }}
+                    ]
+                }}
+
+                Transcript:
+                {transcript}"""
+
+                # Get response from LLM
+                response = await self.llm_client.generate(
+                    user_prompt=user_prompt, system_prompt=system_prompt
+                )
+
+                self.logger.debug(
+                    f"Raw LLM response (attempt {attempt + 1}): {response}"
+                )
+
+                # Parse response string to extract JSON
+                if isinstance(response, str):
+                    # Clean the string and find the JSON array
+                    response = response.strip()
+                    start_idx = response.find("[")
+                    end_idx = response.rfind("]")
+
+                    if start_idx == -1 or end_idx == -1:
+                        raise ValueError("No valid JSON array found in response")
+
+                    json_str = response[start_idx : end_idx + 1]
+                    # Clean up common JSON issues
+                    json_str = re.sub(
+                        r",(\s*[}\]])", r"\1", json_str
+                    )  # Remove trailing commas
+                    json_str = re.sub(
+                        r'\\([^"])', r"\1", json_str
+                    )  # Fix escaped characters
+
+                    self.logger.debug(
+                        f"Attempting to parse JSON (attempt {attempt + 1}): {json_str}"
                     )
+                    nodes = json.loads(json_str)
+                else:
+                    nodes = response
 
-            if not has_start:
-                self.logger.warning("WARNING: No Start node found in the tree")
+                # Validate and process nodes
+                if not isinstance(nodes, list):
+                    raise ValueError(f"Expected list of nodes, got {type(nodes)}")
 
-            return nodes
+                # Update depth patterns
+                for node in nodes:
+                    depth = node.get("depth", 0)
+                    if depth not in self.depth_patterns:
+                        self.depth_patterns[depth] = []
+                    if node["content"] not in self.depth_patterns[depth]:
+                        self.depth_patterns[depth].append(node["content"])
 
-        except Exception as e:
-            self.logger.error(f"ERROR: Error extracting nodes: {str(e)}")
-            raise
+                return nodes
+
+            except (json.JSONDecodeError, ValueError) as e:
+                self.logger.warning(
+                    f"Attempt {attempt + 1}/{max_retries} failed: {str(e)}"
+                )
+                if attempt == max_retries - 1:  # Last attempt
+                    self.logger.error("All attempts to parse nodes failed")
+                    self.logger.error(f"Final response that failed: {response}")
+                    raise
+                await asyncio.sleep(1)  # Wait before retrying
+            except Exception as e:
+                self.logger.error(f"Unexpected error: {str(e)}")
+                self.logger.error(f"Full response: {response}")
+                raise
 
     async def _process_scenario(
         self, scenario: Dict[str, str], node: Dict[str, Any], visited: set, depth: int
@@ -525,8 +479,6 @@ class GraphConstructor(IGraphConstructor):
 
         self.phone_number = phone_number
         self.initial_prompt = initial_prompt
-        self.visualizer = DynamicGraphVisualizer()
-
         self.logger.info("START: Starting conversation graph exploration")
 
         # Make initial call
@@ -567,8 +519,9 @@ async def main():
         settings=settings,
     )
 
+    # Init Arguments
     auto_dealership_phone_number = "+1 (650) 879-8564"
-    initial_prompt = """I'm interested in buying a used BMW. I'd like to know what models you have available 
+    initial_prompt = """I'm interested in leasing a used BMW. I'd like to know what models you have available 
     and what the price ranges are. I'm particularly interested in models from the last 5 years."""
 
     await gc.run(
