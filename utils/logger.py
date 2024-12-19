@@ -1,5 +1,4 @@
 import sys
-from datetime import datetime
 
 from loguru import logger
 
@@ -16,7 +15,7 @@ class LoggerFactory:
         # Add custom formatted handler
         logger.add(
             sys.stdout,
-            format="<green>{time:HH:mm:ss}</green> | {message}",
+            format="<blue>{time:HH:mm:ss}</blue> | <green>{message}</green>",
             colorize=True,
             level="INFO",
         )
