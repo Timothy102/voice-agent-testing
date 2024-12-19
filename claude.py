@@ -1,11 +1,14 @@
 import json
+from typing import Any, Dict, List
+
 import aiohttp
-import assemblyai as aai
 import anthropic
+import assemblyai as aai
 import graphviz
-from typing import List, Dict, Any
-from utils.settings import Settings
+
 from utils.logger import LoggerFactory
+from utils.settings import Settings
+
 
 class TranscriptionService:
     def __init__(self):
@@ -18,6 +21,7 @@ class TranscriptionService:
         """Transcribe audio file using AssemblyAI"""
         return self.transcriber.transcribe(filepath).text
 
+
 class ClaudeService:
     def __init__(self):
         self.settings = Settings()
@@ -28,7 +32,7 @@ class ClaudeService:
 
     async def get_nodes_from_transcript(self, transcript: str) -> List[Dict[str, Any]]:
         """Extract conversation flow from transcript with customer choices as edges"""
-        
+
         system_prompt = """You are an expert at mapping customer service conversations into process flows.
         Focus only on what actually happened in the conversation.
         Customer responses should be treated as edge labels between decision points."""
@@ -83,7 +87,7 @@ class ClaudeService:
         headers = {
             "x-api-key": self.settings.claude_api_token,
             "anthropic-version": "2023-06-01",
-            "content-type": "application/json"
+            "content-type": "application/json",
         }
 
         payload = {
@@ -91,9 +95,7 @@ class ClaudeService:
             "max_tokens": 1500,
             "temperature": 0.0,
             "system": system_prompt,
-            "messages": [
-                {"role": "user", "content": user_prompt}
-            ]
+            "messages": [{"role": "user", "content": user_prompt}],
         }
 
         try:
@@ -101,58 +103,63 @@ class ClaudeService:
                 async with session.post(
                     "https://api.anthropic.com/v1/messages",
                     headers=headers,
-                    json=payload
+                    json=payload,
                 ) as response:
                     if response.status != 200:
                         error_text = await response.text()
                         raise Exception(f"Claude API error: {error_text}")
-                    
+
                     response_data = await response.json()
 
             self.logger.info(f"Completion: {response_data}")
-            
+
             response_text = response_data["content"][0]["text"]
             return self._extract_nodes(response_text)
-            
+
         except Exception as e:
             self.logger.error(f"Error processing transcript: {str(e)}")
             raise
-    
+
     def _extract_nodes(self, response_text: str) -> List[Dict[str, Any]]:
         """Extract and validate nodes from Claude's response"""
         try:
             if "```json" in response_text:
                 json_content = response_text.split("```json")[1].split("```")[0].strip()
             else:
-                json_start = response_text.find('[')
-                json_end = response_text.rfind(']')
-                
+                json_start = response_text.find("[")
+                json_end = response_text.rfind("]")
+
                 if json_start == -1 or json_end == -1:
                     raise ValueError("No valid JSON array found in response")
-                    
-                json_content = response_text[json_start:json_end + 1]
 
-            json_content = json_content.strip().replace(',]', ']')
+                json_content = response_text[json_start : json_end + 1]
+
+            json_content = json_content.strip().replace(",]", "]")
             nodes = json.loads(json_content)
-            
+
             # Validate node structure and ensure Start node exists
             has_start = False
             for node in nodes:
-                if node.get('content') == 'Start':
+                if node.get("content") == "Start":
                     has_start = True
-                required_fields = ['node_id', 'content', 'speaker', 'edges']
-                missing_fields = [field for field in required_fields if field not in node]
+                required_fields = ["node_id", "content", "speaker", "edges"]
+                missing_fields = [
+                    field for field in required_fields if field not in node
+                ]
                 if missing_fields:
-                    self.logger.warning(f"Node {node.get('node_id', 'unknown')} missing fields: {missing_fields}")
-            
+                    self.logger.warning(
+                        f"Node {node.get('node_id', 'unknown')} missing fields: {missing_fields}"
+                    )
+
             if not has_start:
                 self.logger.warning("No Start node found in the tree")
-            
+
             return nodes
-            
+
         except Exception as e:
             self.logger.error(f"Error extracting nodes: {str(e)}")
             raise
+
 
 async def main():
     # Example usage
@@ -160,7 +167,9 @@ async def main():
     claude_service = ClaudeService()
 
     # Test transcription
-    audio_file = "transcripts/cm4u5chwj00luirz8bepiwfzc.mp3"  # Replace with actual test file
+    audio_file = (
+        "transcripts/cm4u5chwj00luirz8bepiwfzc.mp3"  # Replace with actual test file
+    )
     transcript = await transcription_service.transcribe(audio_file)
     print(f"Transcript: {transcript}")
 
@@ -169,10 +178,13 @@ async def main():
     claude_service.logger.info(f"Conversation nodes: {json.dumps(nodes, indent=2)}")
 
     from utils.visualizer import DecisionTreeVisualizer
+
     visualizer = DecisionTreeVisualizer()
     graph = visualizer.create_graph(nodes)
-    visualizer.save_graph('conversation_tree')
+    visualizer.save_graph("conversation_tree")
+
 
 if __name__ == "__main__":
     import asyncio
+
     asyncio.run(main())

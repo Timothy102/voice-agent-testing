@@ -16,6 +16,7 @@ aiohttp = "^3.11.10"
 loguru = "^0.7.3"
 networkx = "^3.4.2"
 graphviz = "^0.20.3"
+pre-commit = "^4.0.1"
 
 
 [build-system]

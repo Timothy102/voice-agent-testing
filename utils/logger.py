@@ -1,6 +1,8 @@
-from loguru import logger
 import sys
 from datetime import datetime
+
+from loguru import logger
+
 
 class LoggerFactory:
     def __init__(self):
@@ -10,15 +12,15 @@ class LoggerFactory:
     def setup_logger():
         # Remove any existing handlers
         logger.remove()
-        
+
         # Add custom formatted handler
         logger.add(
             sys.stdout,
             format="<green>{time:HH:mm:ss}</green> | {message}",
             colorize=True,
-            level="INFO"
+            level="INFO",
         )
-        
+
         return logger
 
     def info(self, message: str):

@@ -10,15 +10,12 @@ prompt = """I'm interested in buying a used BMW. I'd like to know what models yo
 and what the price ranges are. I'm particularly interested in models from the last 5 years."""
 
 # Make API call to start phone call
-headers = {
-    "Authorization": f"Bearer {API_TOKEN}",
-    "Content-Type": "application/json"
-}
+headers = {"Authorization": f"Bearer {API_TOKEN}", "Content-Type": "application/json"}
 
 payload = {
     "phone_number": phone_number,
     "prompt": prompt,
-    "webhook_url": "https://your-webhook-url.com/callback"  # Replace with actual webhook URL
+    "webhook_url": "https://your-webhook-url.com/callback",  # Replace with actual webhook URL
 }
 
 response = requests.post(API_ENDPOINT, json=payload, headers=headers)

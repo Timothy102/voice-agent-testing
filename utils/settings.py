@@ -1,6 +1,8 @@
-from pydantic_settings import BaseSettings
 from functools import lru_cache
-from typing import Dict, Any
+from typing import Any, Dict
+
+from pydantic_settings import BaseSettings
+
 
 class Settings(BaseSettings):
     def __init__(self, **kwargs):
@@ -13,6 +15,7 @@ class Settings(BaseSettings):
         env_file_encoding = "utf-8"
         # Allow arbitrary fields to be set from environment variables
         extra = "allow"
+
 
 @lru_cache()
 def get_settings() -> Settings:
