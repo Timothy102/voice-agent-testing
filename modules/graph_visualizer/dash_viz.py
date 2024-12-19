@@ -1,13 +1,14 @@
 import logging
+import os
 import queue
 import threading
+from typing import List, Dict, Any
 
 import dash_cytoscape as cyto
-from dash import Dash, dcc, html
-from dash.dependencies import Input, Output
-
+from dash import Dash, dcc, html, ctx
+from dash.dependencies import Input, Output, State
+from dash.exceptions import PreventUpdate
 from modules.graph_visualizer.interface import GraphVisualizerInterface
-
 
 class DynamicGraphVisualizer(GraphVisualizerInterface):
     def __init__(
@@ -16,108 +17,136 @@ class DynamicGraphVisualizer(GraphVisualizerInterface):
         host="127.0.0.1",
         title="Hamming AI - Real-Time Conversation Flow",
     ):
-        """
-        Initialize the DynamicGraphVisualizer with specified parameters.
-
-        Args:
-            port (int): The port on which the Dash server will run. Defaults to 8050.
-            host (str): The host address for the Dash server. Defaults to "127.0.0.1".
-            title (str): The title of the graph visualization. Defaults to "Hamming AI - Real-Time Conversation Flow".
-        """
         self.app = Dash(__name__, suppress_callback_exceptions=True)
         self.port = port
         self.host = host
         self.graph_queue = queue.Queue()
         self.current_elements = []
-
-        # Load Cytoscape layouts
+        
+        # Initialize cytoscape with all available layouts
         cyto.load_extra_layouts()
 
-        # Define the layout
-        self.app.layout = html.Div(
-            [
-                html.H1(title),
-                dcc.Interval(
-                    id="interval-component", interval=2000, n_intervals=0
-                ),  # 2 seconds
-                cyto.Cytoscape(
-                    id="conversation-graph",
-                    layout={"name": "dagre"},
-                    style={"width": "100%", "height": "800px"},
-                    elements=self.current_elements,
-                    stylesheet=[
-                        {
-                            "selector": "node",
-                            "style": {
-                                "content": "data(label)",
-                                "text-wrap": "wrap",
-                                "text-max-width": 100,
-                                "font-size": "12px",
-                                "text-valign": "center",
-                                "text-halign": "center",
-                                "width": 120,
-                                "height": 60,
-                            },
-                        },
-                        {
-                            "selector": ".agent",
-                            "style": {
-                                "background-color": "#E3F2FD",
-                                "shape": "diamond",
-                            },
-                        },
-                        {
-                            "selector": ".system",
-                            "style": {"background-color": "#E8F5E9", "shape": "circle"},
-                        },
-                        {
-                            "selector": "edge",
-                            "style": {
-                                "content": "data(label)",
-                                "curve-style": "bezier",
-                                "target-arrow-shape": "triangle",
-                                "font-size": "10px",
-                                "text-rotation": "autorotate",
-                                "text-margin-y": -10,
-                            },
-                        },
+        # Define the layout with more robust styling
+        self.app.layout = html.Div([
+            html.H1(title, style={
+                'textAlign': 'center',
+                'marginBottom': '20px',
+                'fontFamily': 'Arial, sans-serif'
+            }),
+            html.Div([
+                # Add layout controls
+                html.Label('Layout:'),
+                dcc.Dropdown(
+                    id='layout-dropdown',
+                    options=[
+                        {'label': 'Dagre (Top-Down)', 'value': 'dagre'},
+                        {'label': 'Concentric', 'value': 'concentric'},
+                        {'label': 'Circle', 'value': 'circle'},
+                        {'label': 'Cola', 'value': 'cola'}
                     ],
+                    value='dagre',
+                    style={'width': '200px', 'marginBottom': '10px'}
                 ),
-            ]
-        )
+            ], style={'marginBottom': '20px'}),
+            dcc.Interval(
+                id='interval-component',
+                interval=1000,  # Update every second
+                n_intervals=0
+            ),
+            cyto.Cytoscape(
+                id='conversation-graph',
+                layout={'name': 'dagre', 'rankDir': 'TB'},
+                style={'width': '100%', 'height': '700px', 'backgroundColor': '#f8f9fa'},
+                elements=self.current_elements,
+                stylesheet=[
+                    {
+                        'selector': 'node',
+                        'style': {
+                            'content': 'data(label)',
+                            'text-wrap': 'wrap',
+                            'text-max-width': 100,
+                            'font-size': '14px',
+                            'text-valign': 'center',
+                            'text-halign': 'center',
+                            'width': 150,
+                            'height': 75,
+                            'padding': '10px',
+                            'border-width': 2,
+                            'border-color': '#666'
+                        }
+                    },
+                    {
+                        'selector': '.agent',
+                        'style': {
+                            'background-color': '#E3F2FD',
+                            'shape': 'diamond',
+                            'border-color': '#1976D2'
+                        }
+                    },
+                    {
+                        'selector': '.system',
+                        'style': {
+                            'background-color': '#E8F5E9',
+                            'shape': 'circle',
+                            'border-color': '#388E3C'
+                        }
+                    },
+                    {
+                        'selector': 'edge',
+                        'style': {
+                            'content': 'data(label)',
+                            'curve-style': 'bezier',
+                            'target-arrow-shape': 'triangle',
+                            'font-size': '12px',
+                            'text-rotation': 'autorotate',
+                            'text-margin-y': -10,
+                            'line-color': '#666',
+                            'target-arrow-color': '#666',
+                            'width': 2,
+                            'text-outline-color': '#fff',
+                            'text-outline-width': 2
+                        }
+                    }
+                ]
+            )
+        ], style={'padding': '20px'})
 
-        # Register callback after layout is defined
-        @self.app.callback(
-            Output("conversation-graph", "elements"),
-            Input("interval-component", "n_intervals"),
-        )
-        def update_graph(n):
-            """
-            Update the graph elements based on the latest nodes from the queue.
+        # Register callbacks
+        self.app.callback(
+            Output('conversation-graph', 'elements'),
+            Input('interval-component', 'n_intervals'),
+            prevent_initial_call=True
+        )(self.update_elements)
 
-            Args:
-                n (int): The number of intervals passed.
-
-            Returns:
-                list: The updated list of graph elements.
-            """
-            try:
-                latest_nodes = self.graph_queue.get_nowait()
-                self.current_elements = self._convert_nodes_to_elements(latest_nodes)
-            except queue.Empty:
-                pass
-            return self.current_elements
+        self.app.callback(
+            Output('conversation-graph', 'layout'),
+            Input('layout-dropdown', 'value'),
+            prevent_initial_call=True
+        )(self.update_layout)
 
         # Start the server thread
         self.dash_thread = threading.Thread(target=self._run_dash_server, daemon=True)
         self.dash_thread.start()
 
+    def update_elements(self, n_intervals):
+        """Callback to update graph elements"""
+        try:
+            latest_nodes = self.graph_queue.get_nowait()
+            self.current_elements = self._convert_nodes_to_elements(latest_nodes)
+            return self.current_elements
+        except queue.Empty:
+            raise PreventUpdate
+
+    def update_layout(self, layout_name):
+        """Callback to update graph layout"""
+        return {'name': layout_name, 'rankDir': 'TB'}
+
     def _run_dash_server(self):
-        """Run the Dash app in a separate thread."""
-        log = logging.getLogger("werkzeug")
+        """Run the Dash app in a separate thread"""
+        log = logging.getLogger('werkzeug')
         log.setLevel(logging.ERROR)
 
-        dash_logger = logging.getLogger("dash")
+        dash_logger = logging.getLogger('dash')
         dash_logger.setLevel(logging.ERROR)
 
         self.app.run_server(
@@ -125,56 +154,60 @@ class DynamicGraphVisualizer(GraphVisualizerInterface):
             host=self.host,
             port=self.port,
             use_reloader=False,
-            dev_tools_hot_reload=False,
         )
 
-    def _convert_nodes_to_elements(self, nodes):
-        """
-        Convert nodes to Cytoscape elements.
-
-        Args:
-            nodes (list): A list of nodes to be converted.
-
-        Returns:
-            list: A list of elements suitable for Cytoscape.
-        """
+    def _convert_nodes_to_elements(self, nodes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Convert nodes to Cytoscape elements with improved handling"""
         if not nodes:
             return []
 
         elements = []
-
-        # Create nodes
+        
+        # Add nodes with improved styling
         for node in nodes:
-            node_class = "agent" if node["speaker"] == "agent" else "system"
-            elements.append(
-                {
-                    "data": {"id": str(node["node_id"]), "label": str(node["content"])},
-                    "classes": node_class,
-                }
-            )
+            node_id = str(node['node_id'])
+            node_class = 'agent' if node['speaker'] == 'agent' else 'system'
+            
+            elements.append({
+                'data': {
+                    'id': node_id,
+                    'label': str(node['content']),
+                    'speaker': node['speaker']
+                },
+                'classes': node_class,
+                'locked': False  # Allow nodes to be moved
+            })
 
-        # Create edges
+        # Add edges with improved data handling
         for node in nodes:
-            for edge in node.get("edges", []):
-                elements.append(
-                    {
-                        "data": {
-                            "source": str(node["node_id"]),
-                            "target": str(edge["target_node_id"]),
-                            "label": str(edge.get("label", "")),
-                        }
+            source_id = str(node['node_id'])
+            for edge in node.get('edges', []):
+                target_id = str(edge['target_node_id'])
+                edge_id = f"{source_id}-{target_id}"
+                
+                elements.append({
+                    'data': {
+                        'id': edge_id,
+                        'source': source_id,
+                        'target': target_id,
+                        'label': str(edge.get('label', ''))
                     }
-                )
+                })
 
         return elements
 
-    def update_graph(self, nodes):
-        """
-        Update the graph with new nodes.
-
-        Args:
-            nodes (list): A list of new nodes to be added to the graph.
-        """
+    def update_graph(self, nodes: List[Dict[str, Any]]) -> None:
+        """Update the graph with new nodes"""
         if nodes:
             print(f"Updating graph with {len(nodes)} nodes")
+            # Clear the queue before putting new nodes to prevent backlog
+            while not self.graph_queue.empty():
+                try:
+                    self.graph_queue.get_nowait()
+                except queue.Empty:
+                    break
             self.graph_queue.put(nodes)
+
+    def start(self):
+        """Start method for compatibility"""
+        pass

@@ -1,3 +1,5 @@
+"""Main module for constructing and exploring conversation graphs."""
+
 import asyncio
 import json
 import re
@@ -6,52 +8,78 @@ from typing import Any, Dict, List, Optional
 
 import aiofiles
 import aiohttp
-import anthropic
-import assemblyai as aai
 import requests
-from pydantic import BaseModel
 
-from utils.dash_viz import DynamicGraphVisualizer
-from utils.logger import LoggerFactory
+from interface import IGraphConstructor
+from modules.graph_visualizer.dash_viz import DynamicGraphVisualizer
+from modules.graph_visualizer.interface import GraphVisualizerInterface
+from modules.llm_client.claude import ClaudeClient
+from modules.llm_client.interface import LLMClientInterface
+from modules.logger.factory import LoggerFactory
+from modules.logger.interface import LoggerInterface
+from modules.transcriber.assembly_ai import AssemblyAITranscriber
+from modules.transcriber.interface import TranscriberInterface
 from utils.settings import Settings
-from utils.visualizer import DecisionTreeVisualizer
 
 
 @dataclass
 class ConversationNode:
+    """Represents a node in the conversation graph.
+
+    Attributes:
+        content: The text content of the node
+        speaker: Who is speaking ('agent' or 'customer')
+        next_nodes: List of nodes that follow this one
+        node_id: Unique identifier for the node
+    """
+
     content: str
     speaker: str  # 'agent' or 'customer'
     next_nodes: List["ConversationNode"]
     node_id: str
 
 
-class GraphConstructor(BaseModel):
-    phone_number: str
-    prompt: str
-    nodes: List[Dict[str, Any]] = []
-    visited: set = set()
-    settings: Settings = None
-    logger: LoggerFactory = None
-    transcriber: Optional[aai.Transcriber] = None
-    visualizer: Optional[DynamicGraphVisualizer] = None
+class GraphConstructor(IGraphConstructor):
+    """Constructs and explores conversation graphs through automated testing.
 
-    depth_patterns: Dict[int, List[str]] = {}  # depth -> list of known questions
+    This class handles building conversation graphs by making calls, transcribing responses,
+    and exploring different conversation paths through automated testing.
+    """
 
-    class Config:
-        arbitrary_types_allowed = True
+    def __init__(
+        self,
+        llm_client: LLMClientInterface,
+        visualizer: GraphVisualizerInterface,
+        transcriber: TranscriberInterface,
+        logger: LoggerInterface,
+        settings: Optional[Settings] = None,
+    ) -> None:
+        """Initialize the GraphConstructor with required components.
 
-    def __init__(self, **data):
-        super().__init__(**data)
-        self.settings = Settings()
-        self.logger = LoggerFactory()
-        aai.settings.api_key = self.settings.assemblyai_api_token
-        self.transcriber = aai.Transcriber()
+        Args:
+            llm_client: Client for generating LLM responses
+            graph_viz: Visualizer for rendering conversation graphs
+            transcriber: Service for transcribing audio to text
+            logger: Logger for tracking execution
+        """
+        super().__init__(llm_client, visualizer, transcriber, logger, settings)
+        self.nodes: List[Dict[str, Any]] = []
+        self.depth_patterns: Dict[int, List[str]] = {}
+        self.logger.info("INFO: GraphConstructor initialized")
 
     async def generate_test_scenarios(
         self, node: Dict[str, Any], max_scenarios: int = 3
     ) -> List[Dict[str, str]]:
-        """Generate alternative paths for a decision point"""
-        self.logger.info(f"Generating test scenarios for node: {node['content']}")
+        """Generate alternative conversation paths for a decision point.
+
+        Args:
+            node: The current conversation node
+            max_scenarios: Maximum number of scenarios to generate
+
+        Returns:
+            List of scenario dictionaries with 'response' and 'prompt' keys
+        """
+        self.logger.info(f"INFO: Generating test scenarios for node: {node['content']}")
 
         system_prompt = """You are an expert at generating test scenarios for conversation branches.
         For each decision point, generate alternative paths that test different customer responses."""
@@ -80,40 +108,15 @@ class GraphConstructor(BaseModel):
         """
 
         try:
-            # Use aiohttp directly instead of anthropic client
-            headers = {
-                "x-api-key": self.settings.claude_api_token,
-                "anthropic-version": "2023-06-01",
-                "content-type": "application/json",
-            }
-
-            payload = {
-                "model": "claude-3-opus-20240229",
-                "max_tokens": 1500,
-                "temperature": 0,
-                "system": system_prompt,
-                "messages": [{"role": "user", "content": user_prompt}],
-            }
-
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    "https://api.anthropic.com/v1/messages",
-                    headers=headers,
-                    json=payload,
-                ) as response:
-                    if response.status != 200:
-                        error_text = await response.text()
-                        raise Exception(f"Claude API error: {error_text}")
-
-                    response_data = await response.json()
-
-            # Log raw response
-            self.logger.info(
-                f"Raw Claude response: {response_data['content'][0]['text']}"
+            response_data = await self.llm_client.generate(
+                user_prompt=user_prompt, system_prompt=system_prompt
             )
+            print("response_data", response_data)
+            # Log raw response
+            self.logger.debug(f"DEBUG: Claude response: {response_data}")
 
             # Extract JSON from response
-            response_text = response_data["content"][0]["text"]
+            response_text = response_data
 
             # Find JSON content
             if "```json" in response_text:
@@ -139,21 +142,25 @@ class GraphConstructor(BaseModel):
                 if "response" not in scenario or "prompt" not in scenario:
                     raise ValueError("Scenario missing required fields")
 
-            self.logger.info(f"Parsed scenarios: {json.dumps(scenarios, indent=2)}")
+            self.logger.info(
+                f"INFO: Parsed scenarios: {json.dumps(scenarios, indent=2)}"
+            )
             return scenarios
 
         except Exception as e:
-            self.logger.error(f"Error generating scenarios: {str(e)}")
+            self.logger.error(f"ERROR: Error generating scenarios: {str(e)}")
             if "response_data" in locals():
-                self.logger.error(
-                    f"Failed to parse response: {response_data['content'][0]['text']}"
-                )
+                self.logger.error(f"ERROR: Failed to parse response: {response_data}")
             else:
-                self.logger.error("No response received from Claude")
+                self.logger.error("ERROR: No response received from Claude")
             return []
 
     async def call(self) -> int:
-        """Makes a call to the Hamming API Endpoint."""
+        """Makes a call to the Hamming API Endpoint.
+
+        Returns:
+            The call ID from the Hamming API response
+        """
         headers = {
             "Authorization": f"Bearer {self.settings.hammingai_api_token}",
             "Content-Type": "application/json",
@@ -161,7 +168,7 @@ class GraphConstructor(BaseModel):
 
         payload = {
             "phone_number": self.phone_number,
-            "prompt": self.prompt,
+            "prompt": self.initial_prompt,
             "webhook_url": "https://your-webhook-url.com/callback",
         }
 
@@ -170,7 +177,7 @@ class GraphConstructor(BaseModel):
                 self.settings.api_endpoint, json=payload, headers=headers
             ) as response:
                 self.logger.info(
-                    f"Calling phone number {self.phone_number} via API call to {self.settings.api_endpoint}"
+                    f"INFO: Calling phone number {self.phone_number} via API call to {self.settings.api_endpoint}"
                 )
                 response_data = await response.json()
                 return response_data["id"]
@@ -178,15 +185,29 @@ class GraphConstructor(BaseModel):
     async def poll_for_response(
         self, call_id: int, time_in_between_polls: int = 200, max_time: int = 480
     ) -> str:
+        """Poll the API for a response recording.
+
+        Args:
+            call_id: ID of the call to poll for from Hamming AI
+            time_in_between_polls: Time to wait between polls in seconds
+            max_time: Maximum time to poll in seconds before raising a TimeoutError
+
+        Returns:
+            Path to the downloaded audio file
+
+        Raises:
+            TimeoutError: If max_time is exceeded
+            ValueError: If server returns an error
+        """
         headers = {
             "Authorization": f"Bearer {self.settings.hammingai_api_token}",
             "Content-Type": "application/json",
         }
 
-        # URL to get response from #
         recording_url = f"https://app.hamming.ai/api/media/exercise?id={call_id}"
 
-        # Start polling #
+        self.logger.info(f"INFO: Starting to poll for response with call ID: {call_id}")
+
         start_time = asyncio.get_event_loop().time()
         while True:
             recording_response = requests.get(recording_url, headers=headers)
@@ -194,38 +215,29 @@ class GraphConstructor(BaseModel):
             if recording_response.status_code == 200:
                 audio_content = recording_response.content
 
-                # Save the audio content to a file (optional but recommended for debugging)
                 filepath = f"transcripts/{call_id}.mp3"
                 async with aiofiles.open(filepath, "wb") as f:
                     await f.write(audio_content)
 
+                self.logger.info(f"INFO: Successfully downloaded audio to {filepath}")
                 return filepath
 
-            # Breaking the code for server errors. #
             elif recording_response.status_code >= 500:
                 raise ValueError(
                     f"Server error {recording_response.status_code}, retrying..."
                 )
 
-            # We cannot poll forever. Max time should define how long we ought to wait before breaking the program #
             if asyncio.get_event_loop().time() - start_time > max_time:
                 raise TimeoutError(
                     f"Recording not available after {max_time} minutes of polling"
                 )
 
-            # Wait before polling again
             await asyncio.sleep(time_in_between_polls)
-
-    async def transcribe(self, filepath: str) -> str:
-        self.logger.info(f"Transcribing audio file: {filepath}")
-        transcript = self.transcriber.transcribe(filepath).text
-        self.logger.info(f"Transcription result: {transcript}")
-        return transcript
 
     async def get_nodes_from_transcript(
         self, transcript: str, current_depth: int = 0
     ) -> List[Dict[str, Any]]:
-        """Get nodes from transcript with concise content"""
+        """Convert a transcript into graph nodes with concise content."""
         depth_context = ""
         if self.depth_patterns:
             depth_context = "Known decision points by depth:\n"
@@ -247,10 +259,11 @@ class GraphConstructor(BaseModel):
         - "Transfer to Agent" instead of "Transfer customer to an agent who can help"
         3. For questions, use format: "Topic?"
         4. For actions, use imperative form: "Schedule Call", "Transfer"
-        5. If you see a question/action that matches these known patterns at each depth, use the EXACT same content:
+        5. If you see a question/action that matches these known patterns at depth {current_depth}, use the EXACT same content:
         {depth_context}
 
         Return your response as a SINGLE, COMPLETE JSON array.
+        The first node should always have content be "Start". ALWAYS.
         The array must start with '[' and end with ']'.
         No text before or after the JSON array.
 
@@ -272,36 +285,32 @@ class GraphConstructor(BaseModel):
         {transcript}"""
 
         try:
-            headers = {
-                "x-api-key": self.settings.claude_api_token,
-                "anthropic-version": "2023-06-01",
-                "content-type": "application/json",
-            }
+            # Get response from LLM
+            response = await self.llm_client.generate(
+                user_prompt=user_prompt, system_prompt=system_prompt
+            )
 
-            payload = {
-                "model": "claude-3-opus-20240229",
-                "max_tokens": 1500,
-                "temperature": 0.0,
-                "system": system_prompt,
-                "messages": [{"role": "user", "content": user_prompt}],
-            }
+            self.logger.debug(f"Raw LLM response: {response}")
 
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    "https://api.anthropic.com/v1/messages",
-                    headers=headers,
-                    json=payload,
-                ) as response:
-                    if response.status != 200:
-                        error_text = await response.text()
-                        raise Exception(f"Claude API error: {error_text}")
+            # Parse response string to extract JSON
+            if isinstance(response, str):
+                # Clean the string and find the JSON array
+                response = response.strip()
+                start_idx = response.find("[")
+                end_idx = response.rfind("]")
 
-                    response_data = await response.json()
+                if start_idx == -1 or end_idx == -1:
+                    raise ValueError("No valid JSON array found in response")
 
-            self.logger.info(f"Completion: {response_data}")
+                json_str = response[start_idx : end_idx + 1]
+                nodes = json.loads(json_str)
+            else:
+                # If response is already parsed JSON (dict or list)
+                nodes = response
 
-            # Extract nodes
-            nodes = self._extract_nodes(response_data["content"][0]["text"])
+            # Validate and process nodes
+            if not isinstance(nodes, list):
+                raise ValueError(f"Expected list of nodes, got {type(nodes)}")
 
             # Update depth patterns
             for node in nodes:
@@ -313,24 +322,37 @@ class GraphConstructor(BaseModel):
 
             return nodes
 
+        except json.JSONDecodeError as e:
+            self.logger.error(f"JSON parsing error: {str(e)}")
+            self.logger.debug(f"Failed to parse response: {response}")
+            raise
         except Exception as e:
             self.logger.error(f"Error processing transcript: {str(e)}")
             raise
 
     def _extract_nodes(self, response_text: str) -> List[Dict[str, Any]]:
-        """Extract and validate nodes from Claude's response"""
+        """Extract and validate nodes from Claude's response.
+
+        Args:
+            response_text: Raw response text from Claude
+
+        Returns:
+            List of validated node dictionaries
+
+        Raises:
+            ValueError: If node validation fails
+        """
         try:
-            # First try to find a complete JSON array
+            # Forcing JSON structure extraction #
             if "```json" in response_text:
                 json_content = response_text.split("```json")[1].split("```")[0].strip()
             else:
-                # Look for the complete array structure
                 start_idx = response_text.find("[")
                 end_idx = response_text.rfind("]")
 
                 if start_idx == -1 or end_idx == -1:
-                    self.logger.error("No complete JSON array found in response")
-                    self.logger.debug(f"Response text: {response_text}")
+                    self.logger.error("ERROR: No complete JSON array found in response")
+                    self.logger.debug(f"DEBUG: Response text: {response_text}")
                     raise ValueError("No valid JSON array found in response")
 
                 json_content = response_text[start_idx : end_idx + 1]
@@ -346,8 +368,8 @@ class GraphConstructor(BaseModel):
             try:
                 nodes = json.loads(json_content)
             except json.JSONDecodeError as e:
-                self.logger.error(f"JSON decode error: {str(e)}")
-                self.logger.debug(f"Attempted to parse: {json_content}")
+                self.logger.error(f"ERROR: JSON decode error: {str(e)}")
+                self.logger.debug(f"DEBUG: Attempted to parse: {json_content}")
                 raise
 
             # Validate nodes
@@ -361,22 +383,29 @@ class GraphConstructor(BaseModel):
                 ]
                 if missing_fields:
                     self.logger.warning(
-                        f"Node {node.get('node_id', 'unknown')} missing fields: {missing_fields}"
+                        f"WARNING: Node {node.get('node_id', 'unknown')} missing fields: {missing_fields}"
                     )
 
             if not has_start:
-                self.logger.warning("No Start node found in the tree")
+                self.logger.warning("WARNING: No Start node found in the tree")
 
             return nodes
 
         except Exception as e:
-            self.logger.error(f"Error extracting nodes: {str(e)}")
+            self.logger.error(f"ERROR: Error extracting nodes: {str(e)}")
             raise
 
     async def _process_scenario(
         self, scenario: Dict[str, str], node: Dict[str, Any], visited: set, depth: int
     ) -> None:
-        """Process a single scenario"""
+        """Process a single test scenario.
+
+        Args:
+            scenario: The scenario to test
+            node: Current conversation node
+            visited: Set of visited node IDs
+            depth: Current depth in conversation tree
+        """
         self.logger.info(f"Testing scenario: {scenario['response']}")
 
         # Update prompt for this scenario
@@ -385,7 +414,9 @@ class GraphConstructor(BaseModel):
         # Make new call
         call_id = await self.call()
         audio_filepath = await self.poll_for_response(call_id)
-        new_transcript = await self.transcribe(audio_filepath)
+        print("audio_filepath", audio_filepath)
+        new_transcript = await self.transcriber.transcribe(audio_filepath)
+        self.logger.info(f"Transcript: {new_transcript}")
 
         # Get new nodes with depth context
         new_nodes = await self.get_nodes_from_transcript(new_transcript, depth + 1)
@@ -415,9 +446,7 @@ class GraphConstructor(BaseModel):
 
                 if new_edge not in node["edges"]:
                     node["edges"].append(new_edge)
-                    self.visualizer.update_graph(
-                        self.nodes
-                    )  # Update after edge addition
+                    self.visualizer.update_graph(self.nodes)
                     await self.dfs(existing_node, visited, depth + 1)
             else:
                 new_edge = {
@@ -428,9 +457,7 @@ class GraphConstructor(BaseModel):
                 if new_edge not in node["edges"]:
                     node["edges"].append(new_edge)
                     self.nodes.extend(new_nodes)
-                    self.visualizer.update_graph(
-                        self.nodes
-                    )  # Update after edge addition
+                    self.visualizer.update_graph(self.nodes)
                     await self.dfs(new_nodes[0], visited, depth + 1)
 
     async def dfs(
@@ -493,9 +520,11 @@ class GraphConstructor(BaseModel):
         if edge_tasks:
             await asyncio.gather(*edge_tasks)
 
-    async def run(self) -> None:
+    async def run(self, phone_number: str, initial_prompt: str) -> None:
         """Run the automated testing process"""
 
+        self.phone_number = phone_number
+        self.initial_prompt = initial_prompt
         self.visualizer = DynamicGraphVisualizer()
 
         self.logger.info("START: Starting conversation graph exploration")
@@ -503,7 +532,7 @@ class GraphConstructor(BaseModel):
         # Make initial call
         call_id = await self.call()
         audio_filepath = await self.poll_for_response(call_id)
-        transcript = await self.transcribe(audio_filepath)
+        transcript = await self.transcriber.transcribe(audio_filepath)
 
         # Get initial graph
         self.nodes = await self.get_nodes_from_transcript(transcript)
@@ -520,21 +549,31 @@ class GraphConstructor(BaseModel):
 
         self.logger.info(f"Final graph structure: {json.dumps(self.nodes, indent=2)}")
 
-        # Visualize final graph
-        visualizer = DecisionTreeVisualizer()
-        visualizer.create_graph(self.nodes)
-        visualizer.save_graph("conversation_tree")
-
 
 async def main():
+    # Initialize components
+    settings = Settings()
+    llm_client = ClaudeClient(api_token=settings.claude_api_token)
+    logger = LoggerFactory()
+    transcriber = AssemblyAITranscriber(api_token=settings.assemblyai_api_token)
+    visualizer = DynamicGraphVisualizer()
+
+    # Initialize graph constructor with components
+    gc = GraphConstructor(
+        llm_client=llm_client,
+        logger=logger,
+        transcriber=transcriber,
+        visualizer=visualizer,
+        settings=settings,
+    )
+
     auto_dealership_phone_number = "+1 (650) 879-8564"
     initial_prompt = """I'm interested in buying a used BMW. I'd like to know what models you have available 
     and what the price ranges are. I'm particularly interested in models from the last 5 years."""
 
-    gc = GraphConstructor(
-        phone_number=auto_dealership_phone_number, prompt=initial_prompt
+    await gc.run(
+        phone_number=auto_dealership_phone_number, initial_prompt=initial_prompt
     )
-    await gc.run()
 
 
 if __name__ == "__main__":
