@@ -28,13 +28,11 @@ class ConversationNode:
 
     Attributes:
         content: The text content of the node
-        speaker: Who is speaking ('agent' or 'customer')
         next_nodes: List of nodes that follow this one
         node_id: Unique identifier for the node
     """
 
     content: str
-    speaker: str  # 'agent' or 'customer'
     next_nodes: List["ConversationNode"]
     node_id: str
 
@@ -273,7 +271,6 @@ class GraphConstructor(IGraphConstructor):
                 {{
                     "node_id": number,
                     "content": "very short phrase",
-                    "speaker": "agent" or "system",
                     "depth": number,
                     "edges": [
                         {{
@@ -380,12 +377,7 @@ class GraphConstructor(IGraphConstructor):
             self.visualizer.update_graph(self.nodes)
             # Check if first node in new path matches any existing node
             existing_node = next(
-                (
-                    n
-                    for n in self.nodes
-                    if n["speaker"] == new_nodes[0]["speaker"]
-                    and n["content"] == new_nodes[0]["content"]
-                ),
+                (n for n in self.nodes if n["content"] == new_nodes[0]["content"]),
                 None,
             )
 
@@ -428,13 +420,12 @@ class GraphConstructor(IGraphConstructor):
             f"Exploring node {node['node_id']}: {node['content']} at depth {depth}"
         )
 
-        # Add this node's content to patterns if it's an agent node
-        if node["speaker"] == "agent":
-            if depth not in self.depth_patterns:
-                self.depth_patterns[depth] = []
-            if node["content"] not in self.depth_patterns[depth]:
-                self.depth_patterns[depth].append(node["content"])
-                self.logger.info(f"New pattern at depth {depth}: {node['content']}")
+        # Add this node's content to patterns
+        if depth not in self.depth_patterns:
+            self.depth_patterns[depth] = []
+        if node["content"] not in self.depth_patterns[depth]:
+            self.depth_patterns[depth].append(node["content"])
+            self.logger.info(f"New pattern at depth {depth}: {node['content']}")
 
         visited.add(node["node_id"])
 
