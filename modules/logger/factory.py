@@ -2,8 +2,10 @@ import sys
 
 from loguru import logger
 
+from modules.logger.interface import LoggerInterface
 
-class LoggerFactory:
+
+class LoggerFactory(LoggerInterface):
     def __init__(self):
         self.logger = self.setup_logger()
 

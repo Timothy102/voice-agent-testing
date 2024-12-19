@@ -1,5 +1,4 @@
 import logging
-import os
 import queue
 import threading
 
@@ -7,14 +6,24 @@ import dash_cytoscape as cyto
 from dash import Dash, dcc, html
 from dash.dependencies import Input, Output
 
+from modules.graph_visualizer.interface import GraphVisualizerInterface
 
-class DynamicGraphVisualizer:
+
+class DynamicGraphVisualizer(GraphVisualizerInterface):
     def __init__(
         self,
         port=8050,
         host="127.0.0.1",
         title="Hamming AI - Real-Time Conversation Flow",
     ):
+        """
+        Initialize the DynamicGraphVisualizer with specified parameters.
+
+        Args:
+            port (int): The port on which the Dash server will run. Defaults to 8050.
+            host (str): The host address for the Dash server. Defaults to "127.0.0.1".
+            title (str): The title of the graph visualization. Defaults to "Hamming AI - Real-Time Conversation Flow".
+        """
         self.app = Dash(__name__, suppress_callback_exceptions=True)
         self.port = port
         self.host = host
@@ -24,13 +33,13 @@ class DynamicGraphVisualizer:
         # Load Cytoscape layouts
         cyto.load_extra_layouts()
 
-        # Define the layout first
+        # Define the layout
         self.app.layout = html.Div(
             [
                 html.H1(title),
                 dcc.Interval(
-                    id="interval-component", interval=2000, n_intervals=0  # 2 seconds
-                ),
+                    id="interval-component", interval=2000, n_intervals=0
+                ),  # 2 seconds
                 cyto.Cytoscape(
                     id="conversation-graph",
                     layout={"name": "dagre"},
@@ -83,6 +92,15 @@ class DynamicGraphVisualizer:
             Input("interval-component", "n_intervals"),
         )
         def update_graph(n):
+            """
+            Update the graph elements based on the latest nodes from the queue.
+
+            Args:
+                n (int): The number of intervals passed.
+
+            Returns:
+                list: The updated list of graph elements.
+            """
             try:
                 latest_nodes = self.graph_queue.get_nowait()
                 self.current_elements = self._convert_nodes_to_elements(latest_nodes)
@@ -95,7 +113,7 @@ class DynamicGraphVisualizer:
         self.dash_thread.start()
 
     def _run_dash_server(self):
-        """Run the Dash app in a separate thread"""
+        """Run the Dash app in a separate thread."""
         log = logging.getLogger("werkzeug")
         log.setLevel(logging.ERROR)
 
@@ -111,7 +129,15 @@ class DynamicGraphVisualizer:
         )
 
     def _convert_nodes_to_elements(self, nodes):
-        """Convert nodes to Cytoscape elements"""
+        """
+        Convert nodes to Cytoscape elements.
+
+        Args:
+            nodes (list): A list of nodes to be converted.
+
+        Returns:
+            list: A list of elements suitable for Cytoscape.
+        """
         if not nodes:
             return []
 
@@ -143,11 +169,12 @@ class DynamicGraphVisualizer:
         return elements
 
     def update_graph(self, nodes):
-        """Update the graph with new nodes"""
+        """
+        Update the graph with new nodes.
+
+        Args:
+            nodes (list): A list of new nodes to be added to the graph.
+        """
         if nodes:
             print(f"Updating graph with {len(nodes)} nodes")
             self.graph_queue.put(nodes)
-
-    def start(self):
-        """Start method for compatibility"""
-        pass
