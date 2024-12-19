@@ -67,7 +67,10 @@ This tool takes a phone number and initial prompt as input, then systematically 
    ```bash
    # Clone the repository
    git clone https://github.com/Timothy102/hamming-ai-takehome
-   cd conversation-graph
+   cd hamming-ai-takehome
+
+   # Create the transcripts folder.
+   mkdir transcripts
 
    # Install dependencies using Poetry
    poetry install
@@ -81,7 +84,7 @@ This tool takes a phone number and initial prompt as input, then systematically 
    HAMMING_API_KEY=your_hamming_key
    ```
 
-3. **Running the Tool**
+3. **Running the Voice Discovery**
    ```python
    # main.py
    import asyncio
