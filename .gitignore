@@ -1,0 +1,7 @@
+.env
+*.mp3
+transcripts/*
+*.png
+__pycache__/
+*.py[cod]
+*$py.class
