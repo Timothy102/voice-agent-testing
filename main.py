@@ -148,12 +148,26 @@ class GraphConstructor(IGraphConstructor):
     ) -> List[Dict[str, str]]:
         """Generate alternative conversation paths for a decision point.
 
+        This function uses the LLM to generate diverse test scenarios for exploring different
+        conversation branches at key decision points in the dialogue. It analyzes the current
+        conversation node and generates alternative customer responses to test the system's
+        handling of various scenarios.
+
         Args:
-            node: The current conversation node
-            max_scenarios: Maximum number of scenarios to generate
+            node (Dict[str, Any]): The current conversation node containing the dialogue
+                context and available response edges
+            max_scenarios (int, optional): Maximum number of test scenarios to generate.
+                Defaults to 3.
 
         Returns:
-            List of scenario dictionaries with 'response' and 'prompt' keys
+            List[Dict[str, str]]: A list of scenario dictionaries, where each dictionary
+                contains:
+                - 'response': A brief description of the customer's response
+                - 'prompt': The full conversation prompt to test that scenario
+
+        Raises:
+            ValueError: If the LLM response cannot be parsed as valid JSON
+            ClientError: If there is an error communicating with the LLM service
         """
         self.logger.info(f"INFO: Generating test scenarios for node: {node['content']}")
 
@@ -234,7 +248,23 @@ class GraphConstructor(IGraphConstructor):
     async def get_nodes_from_transcript(
         self, transcript: str, current_depth: int = 0, max_retries: int = 3
     ) -> List[Dict[str, Any]]:
-        """Convert a transcript into graph nodes with concise content."""
+        """Convert a conversation transcript into a graph representation with concise nodes.
+
+        Args:
+            transcript (str): The conversation transcript to convert into nodes
+            current_depth (int, optional): Current depth in the conversation tree. Defaults to 0.
+            max_retries (int, optional): Maximum number of retries for failed conversions. Defaults to 3.
+
+        Returns:
+            List[Dict[str, Any]]: List of node dictionaries, each containing:
+                - node_id (int): Unique identifier for the node
+                - content (str): Concise 1-4 word description of the node
+                - depth (int): Depth of node in conversation tree
+                - edges (List[Dict]): List of edges to other nodes
+
+        Raises:
+            ValueError: If transcript cannot be converted to valid nodes
+        """
         for attempt in range(max_retries):
             try:
                 depth_context = ""
@@ -349,13 +379,22 @@ class GraphConstructor(IGraphConstructor):
     async def _process_scenario(
         self, scenario: Dict[str, str], node: Dict[str, Any], visited: set, depth: int
     ) -> None:
-        """Process a single test scenario.
+        """Process a single test scenario by making an API call and updating the conversation graph.
+
+        Takes a test scenario, makes a call to generate a response, transcribes it, and updates
+        the conversation graph with any new nodes or edges discovered.
 
         Args:
-            scenario: The scenario to test
-            node: Current conversation node
-            visited: Set of visited node IDs
-            depth: Current depth in conversation tree
+            scenario (Dict[str, str]): The test scenario containing prompt and expected response
+            node (Dict[str, Any]): Current node in the conversation graph
+            visited (set): Set of already visited node IDs to avoid cycles
+            depth (int): Current depth in the conversation tree
+
+        Returns:
+            None
+
+        Raises:
+            Exception: If API call, transcription or graph update fails
         """
         self.logger.info(f"Testing scenario: {scenario['response']}")
 
@@ -409,7 +448,25 @@ class GraphConstructor(IGraphConstructor):
     async def dfs(
         self, node: Dict[str, Any], visited: set = None, depth: int = 0
     ) -> None:
-        """Perform DFS with dynamic path exploration"""
+        """Perform depth-first search traversal with dynamic path exploration.
+
+        This method traverses the conversation graph using DFS while dynamically exploring
+        new conversation paths at each node. It generates and tests alternative scenarios
+        at decision points to discover new branches.
+
+        Args:
+            node (Dict[str, Any]): The current node being explored in the graph
+            visited (set, optional): Set of already visited node IDs. Defaults to None.
+            depth (int, optional): Current depth in the graph traversal. Defaults to 0.
+
+        Returns:
+            None
+
+        Side Effects:
+            - Updates self.nodes with newly discovered conversation paths
+            - Updates self.depth_patterns with patterns found at each depth
+            - Updates the graph visualization via self.visualizer
+        """
         if visited is None:
             visited = set()
 
@@ -466,7 +523,25 @@ class GraphConstructor(IGraphConstructor):
             await asyncio.gather(*edge_tasks)
 
     async def run(self, phone_number: str, initial_prompt: str) -> None:
-        """Run the automated testing process"""
+        """Run the automated testing process for exploring conversation paths.
+
+        This method initiates the conversation graph exploration by:
+        1. Making an initial call using the provided phone number and prompt
+        2. Transcribing the response
+        3. Constructing the initial graph structure
+        4. Performing depth-first search to explore conversation paths
+        5. Visualizing the graph throughout the process
+
+        Args:
+            phone_number (str): The phone number to call for testing
+            initial_prompt (str): The initial conversation prompt to start with
+
+        Returns:
+            None
+
+        Raises:
+            ValueError: If no nodes are found in the initial transcript
+        """
 
         self.phone_number = phone_number
         self.initial_prompt = initial_prompt

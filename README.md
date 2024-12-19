@@ -2,6 +2,8 @@
 
 A tool for automatically exploring and mapping out voice AI agent behaviors through synthetic phone calls.
 
+Made by TimC. Dec 19 2024.
+
 ## Overview
 
 This tool takes a phone number and initial prompt as input, then systematically explores all possible conversation paths with the agent through automated testing. It builds a comprehensive graph visualization showing the different branches and decision points in the conversation flow.
