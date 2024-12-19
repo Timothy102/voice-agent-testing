@@ -21,7 +21,7 @@ class GraphConstructorInterface(ABC):
         settings: Optional[Settings] = None,
     ) -> None:
         """
-        Initialize the IGraphConstructor with the necessary components.
+        Initialize the GraphConstructorInterface with the necessary components.
 
         Args:
             llm_client (LLMClientInterface): The LLM client for generating responses.
