@@ -10,7 +10,7 @@ from modules.transcriber.interface import TranscriberInterface
 from utils.settings import Settings
 
 
-class IGraphConstructor(ABC):
+class GraphConstructorInterface(ABC):
     def __init__(
         self,
         llm_client: LLMClientInterface,

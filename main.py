@@ -6,7 +6,7 @@ import re
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
-from interface import IGraphConstructor
+from interface import GraphConstructorInterface
 from modules.graph_visualizer.dash_viz import DynamicGraphVisualizer
 from modules.graph_visualizer.interface import GraphVisualizerInterface
 from modules.llm_client.claude import ClaudeClient
@@ -35,7 +35,7 @@ class ConversationNode:
     node_id: str
 
 
-class GraphConstructor(IGraphConstructor):
+class GraphConstructor(GraphConstructorInterface):
     """Constructs and explores conversation graphs through automated testing.
 
     This class handles building conversation graphs by making calls, transcribing responses,
