@@ -1,6 +1,6 @@
-# Conversation Graph Explorer
+# Voice Agent Discovery
 
-A tool for automatically exploring and mapping out conversational AI agent behaviors through synthetic phone calls.
+A tool for automatically exploring and mapping out voice AI agent behaviors through synthetic phone calls.
 
 ## Overview
 
@@ -73,7 +73,7 @@ This tool takes a phone number and initial prompt as input, then systematically 
    mkdir transcripts
 
    # Install dependencies using Poetry
-   poetry install
+   poetry shell && poetry install
    ```
 
 2. **API Keys Setup**
@@ -118,6 +118,10 @@ This tool takes a phone number and initial prompt as input, then systematically 
 
    if __name__ == "__main__":
        asyncio.run(main())
+   ```
+
+   ```python
+   python3 main.py
    ```
 
 4. **Viewing Results**
