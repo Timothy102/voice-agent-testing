@@ -37,39 +37,7 @@ class IGraphConstructor(ABC):
         self.visualizer = visualizer
 
     @abstractmethod
-    async def generate_test_scenarios(
-        self, node: Dict[str, Any], max_scenarios: int = 3
-    ) -> List[Dict[str, str]]:
-        """
-        Generate test scenarios based on a given node.
-
-        Args:
-            node (Dict[str, Any]): The node to base the scenarios on.
-            max_scenarios (int): The maximum number of scenarios to generate. Defaults to 3.
-
-        Returns:
-            List[Dict[str, str]]: A list of generated test scenarios.
-        """
-        pass
-
-    @abstractmethod
-    async def get_nodes_from_transcript(
-        self, transcript: str, current_depth: int = 0
-    ) -> List[Dict[str, Any]]:
-        """
-        Extract nodes from a given transcript.
-
-        Args:
-            transcript (str): The transcript to process.
-            current_depth (int): The current depth in the graph. Defaults to 0.
-
-        Returns:
-            List[Dict[str, Any]]: A list of nodes extracted from the transcript.
-        """
-        pass
-
-    @abstractmethod
-    async def _process_scenario(
+    async def run_scenario(
         self,
         scenario: Dict[str, str],
         node: Dict[str, Any],

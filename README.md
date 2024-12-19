@@ -39,7 +39,6 @@ This tool takes a phone number and initial prompt as input, then systematically 
    - Converts transcript into structured node format
    - Each node contains:
      - Content (1-4 word description)
-     - Speaker (agent/system)
      - Depth level
      - Connected edges
 
@@ -52,7 +51,7 @@ This tool takes a phone number and initial prompt as input, then systematically 
 4. **Visualization**
    - Dynamically updates graph as new paths are discovered
    - Shows conversation flow and decision points
-   - Highlights different speakers and depth levels
+   - Highlights different depth levels
 
 ## Key Features
 

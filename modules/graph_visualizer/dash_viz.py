@@ -218,16 +218,13 @@ class DynamicGraphVisualizer(GraphVisualizerInterface):
         # Add nodes with improved styling
         for node in nodes:
             node_id = str(node["node_id"])
-            node_class = "agent" if node["speaker"] == "agent" else "system"
 
             elements.append(
                 {
                     "data": {
                         "id": node_id,
                         "label": str(node["content"]),
-                        "speaker": node["speaker"],
                     },
-                    "classes": node_class,
                     "locked": False,  # Allow nodes to be moved
                 }
             )
