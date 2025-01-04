@@ -67,8 +67,8 @@ This tool takes a phone number and initial prompt as input, then systematically 
 1. **Installation**
    ```bash
    # Clone the repository
-   git clone https://github.com/Timothy102/hamming-ai-takehome
-   cd hamming-ai-takehome
+   git clone https://github.com/Timothy102/voice-agent-testing
+   cd voice-agent-testing
 
    # Create the transcripts folder.
    mkdir transcripts
